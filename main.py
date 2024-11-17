@@ -1,8 +1,14 @@
+from random import random
+
 import pygame as pg
+import pygame_menu
+
 from settings import *
 from tools import load_image
 from magicball import MagicBall
 from enemy import Enemy
+from player import Player
+from menu import Menu
 
 pg.init()
 
@@ -11,127 +17,6 @@ font = pg.font.Font(None, 40)
 
 def text_render(text):
     return font.render(str(text), True, "black")
-
-
-class Player(pg.sprite.Sprite):
-    def __init__(self):
-        super().__init__()
-        self._load_animation()
-        self.image = self.idle_animation_right[0]
-        self.current_image = 0
-        self.current_animation = self.move_right
-
-        self.rect = self.image.get_rect()
-        self.rect.center = (100, SCREEN_HEIGHT // 2)
-
-        self.timer = pg.time.get_ticks()
-        self.interval = 150
-        self.side = "right"
-        self.animation_mode = True
-
-        self.charge_power = 0
-        self.charge_indicator = pg.Surface((self.charge_power, 10))
-        self.charge_indicator.fill("red")
-
-        self.charge_mode = False
-
-        self.attack_mode = False
-        self.attack_interval = 500
-
-        self.fireball = pg.sprite.Group()
-
-    def _load_animation(self):
-        self.idle_animation_right = [load_image(f"images/earth monk/idle{i}.png", CHARACTER_WIDTH, CHARACTER_HEIGHT)
-                                     for i in range(1, 4)]
-        self.idle_animation_left = [pg.transform.flip(image, True, False)
-                                    for image in self.idle_animation_right]
-        self.move_right = [load_image(f"images/earth monk/move{i}.png", CHARACTER_WIDTH, CHARACTER_HEIGHT)
-                           for i in range(1, 5)]
-        self.move_left = [pg.transform.flip(i, True, False)
-                          for i in self.move_right]
-
-        self.charge = [load_image("images/earth monk/charge.png", CHARACTER_WIDTH, CHARACTER_HEIGHT)]
-        self.charge.append(pg.transform.flip(self.charge[0], True, False))
-
-        self.attack = [load_image("images/earth monk/attack.png", CHARACTER_WIDTH, CHARACTER_HEIGHT)]
-        self.attack.append(pg.transform.flip(self.attack[0], True, False))
-
-        self.down = [load_image("images/earth monk/down.png", CHARACTER_WIDTH, CHARACTER_HEIGHT)]
-        self.down.append(pg.transform.flip(self.down[0], True, False))
-
-    def update(self):
-        keys = pg.key.get_pressed()
-        direction = 0
-        if keys[pg.K_a]:
-            direction = -1
-            self.side = "left"
-        if keys[pg.K_d]:
-            direction = 1
-            self.side = "right"
-        self.handle_attack()
-        self.handle_animation()
-        self.handle_movement(direction, keys)
-
-    def handle_animation(self):
-        if not self.charge_mode and self.charge_power > 0:
-            self.attack_mode = True
-
-        if self.animation_mode and not self.attack_mode:
-            if pg.time.get_ticks() - self.timer > self.interval:
-                self.current_image += 1
-                if self.current_image >= len(self.current_animation):
-                    self.current_image = 0
-                self.image = self.current_animation[self.current_image]
-                self.timer = pg.time.get_ticks()
-        if self.charge_mode:
-            self.charge_power += 1
-            self.charge_indicator = pg.Surface((self.charge_power, 10))
-            self.charge_indicator.fill("red")
-            if self.charge_mode == 100:
-                self.attack_mode = True
-
-
-        if self.attack_mode and self.charge_power > 0:
-            fireball_position = self.rect.topright if self . side == "right" else self.rect.topleft
-            self.fireball.add(MagicBall(fireball_position, self.side, self.charge_power, "earth monk"))
-            self.charge_power = 0
-            self.charge_mode = False
-            self.image = self.attack[self.side != "right"]
-            self.timer = pg.time.get_ticks()
-
-
-    def handle_movement(self, direction, keys):
-        if self.attack_mode:
-            return
-        if direction != 0:
-            self.animation_mode = True
-            self.charge_mode = False
-            self.rect.x += direction
-            if direction == -1:
-                self.current_animation = self.move_left
-            else:
-                self.current_animation = self.move_right
-        elif keys[pg.K_SPACE]:
-            self.animation_mode = False
-            self.charge_mode = True
-            self.image = self.charge[self.side != "right"]
-        elif keys[pg.K_s]:
-            self.animation_mode = False
-            self.charge_mode = False
-            self.image = self.down[self.side != "right"]
-        else:
-            self.animation_mode = True
-            self.charge_mode = False
-            if self.side == "left":
-                self.current_animation = self.idle_animation_left
-            else:
-                self.current_animation = self.idle_animation_right
-
-    def handle_attack(self):
-        if self.attack_mode:
-            if pg.time.get_ticks() - self.timer > self.attack_interval:
-                self.attack_mode = False
-                self.timer = pg.time.get_ticks()
 
 
 class Game:
@@ -144,13 +29,23 @@ class Game:
         self.background = load_image("images/background.png", SCREEN_WIDTH, SCREEN_HEIGHT)
         self.foreground = load_image("images/foreground.png", SCREEN_WIDTH, SCREEN_HEIGHT)
 
-        self.player = Player()
-        self.enemy = Enemy("fire wizard")
         self.clock = pg.time.Clock()
-        self.run()
 
-    def run(self):
-        while True:
+        self.is_running = True
+        # self.run()
+        self.win = None
+
+    def run(self, mode, wizards):
+        self.mode = mode
+
+        if self.mode == "one player":
+            self.player = Player()
+            self.enemy = Enemy(wizards[0])
+        elif self.mode == "two players":
+            self.player = Player(wizards[0])
+            self.enemy = Player(wizards[1], first_player=False)
+
+        while self.is_running:
             self.event()
             self.update()
             self.draw()
@@ -159,14 +54,48 @@ class Game:
     def event(self):
         for event in pg.event.get():
             if event.type == pg.QUIT:
-                quit()
+                self.is_running = False
+
+    def event(self):
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                self.is_running = False
+
+            # if GESTURE_MODE:
+            #     if event.type == self.GET_GESTURE:
+            #         self.gesture = self.g.get_gesture()
+
+            if event.type == pg.KEYDOWN and self.win is not None:
+                self.is_running = False
 
     def update(self):
-        self.player.update()
-        self.enemy.update(self.player)
-        self.player.fireball.update()
+        if self.win is None:
+            self.player.update()
+            if self.mode == "one player":
+                self.enemy.update(self.player)
+            else:
+                self.enemy.update()
 
-        self.enemy.fireball.update()
+            self.player.magicball.update()
+            self.enemy.magicball.update()
+
+            if self.enemy.image not in self.enemy.down:
+                hits = pg.sprite.spritecollide(self.enemy, self.player.magicball, True,
+                                               collided=pg.sprite.collide_rect_ratio(0.3))
+
+                for hit in hits:
+                    self.enemy.hp -= hit.power
+            if self.player.image not in self.player.down:
+                hits = pg.sprite.spritecollide(self.player, self.enemy.magicball, True,
+                                               collided=pg.sprite.collide_rect_ratio(0.3))
+
+                for hit in hits:
+                    self.player.hp -= hit.power
+
+            if self.player.hp <= 0:
+                self.win = self.enemy
+            elif self.enemy.hp <= 0:
+                self.win = self.player
 
     def draw(self):
         # Отрисовка интерфейса
@@ -176,12 +105,39 @@ class Game:
 
         if self.player.charge_mode:
             self.screen.blit(self.player.charge_indicator, (self.player.rect.x + 120, self.player.rect.top))
+        elif self.enemy.charge_mode:
+            self.screen.blit(self.enemy.charge_indicator, (self.enemy.rect.x + 120, self.enemy.rect.top))
 
-        self.player.fireball.draw(self.screen)
-        self.enemy.fireball.draw(self.screen)
+        self.player.magicball.draw(self.screen)
+        self.enemy.magicball.draw(self.screen)
         self.screen.blit(self.foreground, (0, 0))
+
+        pg.draw.rect(self.screen, pg.Color(0, 0, 0),
+                     (10 - HP_BAR_STROKE // 2, 10, 200 + HP_BAR_STROKE, 20 + HP_BAR_STROKE))
+        pg.draw.rect(self.screen, pg.Color(0, 255, 0), (10, 10, self.player.hp, 20))
+
+        pg.draw.rect(self.screen, pg.Color(0, 0, 0),
+                     (SCREEN_WIDTH - 210 - HP_BAR_STROKE // 2, 10, 200 + HP_BAR_STROKE, 20 + HP_BAR_STROKE))
+        pg.draw.rect(self.screen, pg.Color(0, 255, 0), (SCREEN_WIDTH - 210, 10, self.enemy.hp, 20))
+
+        if self.win == self.player:
+            text = text_render("ПОБЕДА")
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+            self.screen.blit(text, text_rect)
+            text2 = text_render("Маг в левом углу")
+            text_rect2 = text2.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100))
+            self.screen.blit(text2, text_rect2)
+
+        elif self.win == self.enemy:
+            text = text_render("ПОБЕДА")
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+            self.screen.blit(text, text_rect)
+            text2 = text_render("Маг в правом углу")
+            text_rect2 = text2.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100))
+            self.screen.blit(text2, text_rect2)
+
         pg.display.flip()
 
 
 if __name__ == "__main__":
-    Game()
+    Menu(Game).run()
